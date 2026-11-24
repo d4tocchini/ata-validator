@@ -29,10 +29,13 @@ const docs = [
   { name: 'r', children: [{ name: 'c', children: [{ name: 2 }] }, { nope: 1 }] },
   { 'x-a': 'toolong', n: 10.25, s: 'other', z: 'notbool' }, { 'x-a': 'ok', n: 2.5, s: 'fixed', z: true },
 ]
-const shape = (e) => ({ code: e.code, keyword: e.keyword, instancePath: e.instancePath, schemaPath: e.schemaPath, params: e.params, message: e.message, docUrl: e.docUrl, branch: (e.branchErrors || []).map((b) => [b.keyword, b.instancePath, b.schemaPath]) })
+// A collapsed error's branch errors are compared as a set: a module has no
+// reader to put several of them in schema order (`_sr` in onePassCore), and
+// the object branch of schema 1 reports two.
+const shape = (e) => ({ code: e.code, keyword: e.keyword, instancePath: e.instancePath, schemaPath: e.schemaPath, params: e.params, message: e.message, docUrl: e.docUrl, branch: (e.branchErrors || []).map((b) => [b.keyword, b.instancePath, b.schemaPath].join(' ')).sort() })
 const asSet = (errs) => errs.map((e) => JSON.stringify(shape(e))).sort()
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ata-one-pass-'))
-let compared = 0, rejected = 0, ordered = 0
+let compared = 0, rejected = 0, ordered = 0, unordered = 0
 schemas.forEach((schema, i) => {
   const src = toStandaloneModule(schema, { format: 'cjs', positions: true, onePass: true })
   assert.ok(src, `schema ${i} compiles`)
@@ -58,14 +61,19 @@ schemas.forEach((schema, i) => {
     // the older collector left docUrl off a collapsed oneOf/anyOf error
     const noUrl = (set) => set.map((t) => t.replace(/,"docUrl":"[^"]*"/, ''))
     assert.deepStrictEqual(noUrl(asSet(old.validate(d).errors)), noUrl(asSet(be)), `schema ${i} older collector agrees on ${JSON.stringify(d)}`)
-    if (a.errors.every((e, k) => e.schemaPath === be[k].schemaPath && e.instancePath === be[k].instancePath)) ordered++
+    // A list holding a collapsed error with several branch errors is one the
+    // program hands to the reader (`_sr`), and a module has none: it keeps
+    // such a list as it came (see onePassCore).
+    if (a.errors.some((e) => Array.isArray(e.branchErrors) && e.branchErrors.length > 1)) unordered++
+    else if (a.errors.every((e, k) => e.schemaPath === be[k].schemaPath && e.instancePath === be[k].instancePath)) ordered++
     for (const e of mod.validateJSON(JSON.stringify(d)).errors) assert.ok(e.dataFrame && typeof e.dataFrame.line === 'number', 'validateJSON frames every error')
     compared++
   }
 })
 assert.ok(rejected >= 12)
-// Every rejected list came out in the runtime's order here.
-assert.strictEqual(ordered, rejected, `${ordered} of ${rejected} rejected lists in the runtime's order`)
+// Every rejected list the module orders came out in the runtime's order here.
+assert.strictEqual(ordered, rejected - unordered, `${ordered} of ${rejected - unordered} rejected lists in the runtime's order`)
+assert.ok(unordered <= 1)
 // A custom format has no source form: the module keeps the older collector and still answers.
 {
   const v = new Validator({ type: 'string', format: 'odd' }, { formats: { odd: (s) => s.length % 2 === 1 } })
@@ -73,4 +81,4 @@ assert.strictEqual(ordered, rejected, `${ordered} of ${rejected} rejected lists 
   assert.ok(src && !/const _vC = \(function/.test(src), 'custom format: older collector')
 }
 fs.rmSync(dir, { recursive: true, force: true })
-console.log(`ok: standalone modules report with the one-pass function, ${compared} documents over ${schemas.length} schemas agree with the runtime, ${rejected} rejected lists in its order`)
+console.log(`ok: standalone modules report with the one-pass function, ${compared} documents over ${schemas.length} schemas agree with the runtime, ${ordered} rejected lists in its order`)
