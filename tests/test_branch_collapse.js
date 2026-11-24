@@ -110,6 +110,33 @@ assert.ok(scoreBranch([{ keyword: 'type' }, { keyword: 'minLength' }]) > scoreBr
   assert.strictEqual(r.params.closest, 1);
 }
 
+// A branch that is itself a union is one collapsed error at the union's
+// path; the picker reads it through the errors it reported. Its type
+// failure is a type failure, and its field errors count one by one.
+{
+  const nested = (errs) => ({ code: 'ATA4003', keyword: 'anyOf', instancePath: '/a', branchErrors: errs });
+  const r = collapseBranches({
+    keyword: 'anyOf',
+    branchResults: [
+      { valid: false, errors: [{ keyword: 'type', instancePath: '/a' }, { keyword: 'type', instancePath: '/a' }].map((e) => nested([e])) },
+      { valid: false, errors: [{ keyword: 'type', instancePath: '/a' }] },
+    ],
+    parentPath: '/a', parentSchemaPath: '#/properties/a/anyOf',
+  });
+  assert.strictEqual(r.params.closest, 1);
+  const s = collapseBranches({
+    keyword: 'anyOf',
+    branchResults: [
+      { valid: false, errors: [{ keyword: 'enum', instancePath: '/a/op' }] },
+      { valid: false, errors: [nested([{ keyword: 'const', instancePath: '/a/kind' }, { keyword: 'required', instancePath: '/a' }, { keyword: 'additionalProperties', instancePath: '/a' }])] },
+    ],
+    parentPath: '/a', parentSchemaPath: '#/properties/a/anyOf',
+  });
+  assert.strictEqual(s.params.closest, 0);
+  // the reported branch's errors stay as they were built
+  assert.strictEqual(s.branchErrors.length, 1);
+}
+
 console.log('ok: branch-collapse unit tests');
 
 // End-to-end: oneOf/anyOf/allOf through the runtime Validator.
@@ -201,6 +228,45 @@ const allofStrict = require('./fixtures/error-dx/composition/allof-strict.json')
         assert.ok(e, `${JSON.stringify(data)} ${JSON.stringify(opts)} call ${i + 1}: expected ATA4003 at ${at}`);
         assert.strictEqual(e.params.closest, closest, `${JSON.stringify(data)} ${JSON.stringify(opts)} call ${i + 1}`);
         assert.deepStrictEqual(e.branchErrors.map((x) => x.keyword), keywords, `${JSON.stringify(data)} ${JSON.stringify(opts)} call ${i + 1}`);
+      }
+    }
+  }
+}
+
+// A union whose branch is a union, on both engines and past the later
+// tiers: the text filter with a wrong operator hears about its operator, not
+// the date filter's rules; an object for string|number|contact hears its
+// missing key; and 1.5 for an integer or an intersection of nullable
+// objects (TypeBox's Intersect) hears "must be integer", not "must be
+// object" twice.
+{
+  const obj = (kind, more, req) => ({ type: 'object', properties: { kind: { type: 'string', const: kind }, ...more }, required: ['kind', ...req], additionalProperties: false });
+  const nullable = (key) => ({ anyOf: [{ type: 'object', properties: { [key]: { type: 'string' } }, required: [key] }, { type: 'null' }] });
+  const schema = {
+    type: 'object',
+    properties: {
+      filter: { anyOf: [obj('text', { op: { type: 'string', enum: ['is', 'contains'] }, value: { type: 'string' } }, ['op', 'value']), { anyOf: [obj('date', { on: { type: 'string' } }, ['on']), obj('number', { n: { type: 'number' } }, ['n'])] }] },
+      to: { anyOf: [{ anyOf: [{ type: 'string' }, { type: 'number' }] }, obj('contact', { key: { type: 'string' } }, ['key'])] },
+      n: { anyOf: [{ type: 'integer' }, { allOf: [nullable('a'), nullable('b')] }] },
+    },
+  };
+  const cases = [
+    [{ filter: { kind: 'text', op: 'equals', value: 'a' } }, '/filter', 0, ['enum']],
+    [{ filter: { kind: 'text', op: 'is' } }, '/filter', 0, ['required']],
+    [{ to: { kind: 'contact' } }, '/to', 1, ['required']],
+    [{ to: [] }, '/to', 0, ['anyOf']],
+    [{ n: 1.5 }, '/n', 0, ['type']],
+    [{ n: {} }, '/n', 1, ['anyOf', 'anyOf']],
+  ];
+  for (const opts of [{}, { engine: 'interpreter' }]) {
+    for (const [data, at, closest, keywords] of cases) {
+      const v = new Validator(schema, opts);
+      for (let i = 0; i < 100; i++) {
+        const e = v.validate(data).errors.find((x) => x.code === 'ATA4003' && x.instancePath === at);
+        const label = `${JSON.stringify(data)} ${JSON.stringify(opts)} call ${i + 1}`;
+        assert.ok(e, `${label}: expected ATA4003 at ${at}`);
+        assert.strictEqual(e.params.closest, closest, label);
+        assert.deepStrictEqual(e.branchErrors.map((x) => x.keyword), keywords, label);
       }
     }
   }
