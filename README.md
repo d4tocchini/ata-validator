@@ -816,6 +816,20 @@ the process 1.5 to 2 ms of CPU once. A script that builds a validator and checks
 same tick never runs it, and the timer is unref'd, so a finished script does not stay for
 it; `ATA_NO_WARM=1` turns it off.
 
+A process that holds many validators and answers few documents with each, such as an agent
+with a few hundred tool schemas, can set `ATA_LEAN=1` before it loads ata. A validator then
+generates code for its verdict and nothing else: its errors come from the interpreted
+engine, which reports the same list, and `validate()` keeps its first tier instead of
+compiling the hybrid and result functions at its 64th call. A generated function is held,
+with its program, for as long as its validator lives, and those were most of what a
+validator held once its errors had been read. Measured on 523 tool schemas, each validator
+kept alive and called 100 times with `{}` and an unknown key, errors read on every rejection,
+live heap after a full collection: 57.9 MiB by default and 20.3 lean on Node 23.3.0, 95.6 and
+35.9 on Bun 1.4.4; after 3 calls, 33.5 and 16.9 on Node. Accepted documents cost the same or
+less (129 against 135 ns a call on Node, 125 against 184 on Bun, warm); a rejection whose
+errors are read costs about 1.5 times as much (1.48 against 0.90 µs on Node), and the first
+rejection and the 64th call compile nothing. Read at load, for the whole process.
+
 ### Proving the build (`ata verify`)
 
 A module written at build time is only a good idea if it answers as the

@@ -21,6 +21,7 @@ const FILES = [
   "tests/test_no_eval.js",
   "tests/test_csp_verdict_engine.js",
   "tests/test_small_twin.js",
+  "tests/test_lean.js",
   "tests/test_property_dependencies.js",
   "tests/test_v1_dialect.js",
   "tests/test_buffer_path_parity.js",

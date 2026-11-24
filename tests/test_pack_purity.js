@@ -352,6 +352,10 @@ for (const [name, ver] of Object.entries(pkg.optionalDependencies)) {
 // members and the values under patternProperties, additionalProperties and
 // dependentSchemas (#116), lib/remove-additional.js and its notes.
 // Measured 664.7 KB.
-assert.ok(manifest.size < 666 * 1024, `tarball ${manifest.size} bytes exceeds ceiling (adjust only with a reviewed reason)`);
+// 667 KB with dependentRequired and dependentSchemas reading a key holding
+// undefined as absent, useDefaults filling one, a failed union reporting a
+// branch that got past its type, and ATA_LEAN; most of the growth is their
+// CHANGELOG entries and the README's paragraph on ATA_LEAN. Measured 666.5 KB.
+assert.ok(manifest.size < 667 * 1024, `tarball ${manifest.size} bytes exceeds ceiling (adjust only with a reviewed reason)`);
 
 console.log(`ok: core tarball is pure JS (${files.length} files, ${manifest.size} bytes packed)`);
