@@ -360,7 +360,8 @@ for (const [name, ver] of Object.entries(pkg.optionalDependencies)) {
 // the errors it reported (__ataLift), its notes and CHANGELOG lines.
 // Measured 667.5 KB.
 // 670 KB with the collapse reading a value's tag (rule 2 in
-// __ataCollapse), its notes and CHANGELOG lines. Measured 669.0 KB.
+// __ataCollapse), its notes and CHANGELOG lines. Measured 669.0 KB, and
+// 669.7 KB with each branch's tags (branchTags).
 assert.ok(manifest.size < 670 * 1024, `tarball ${manifest.size} bytes exceeds ceiling (adjust only with a reviewed reason)`);
 
 console.log(`ok: core tarball is pure JS (${files.length} files, ${manifest.size} bytes packed)`);

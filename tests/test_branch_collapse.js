@@ -137,39 +137,58 @@ assert.ok(scoreBranch([{ keyword: 'type' }, { keyword: 'minLength' }]) > scoreBr
   assert.strictEqual(s.branchErrors.length, 1);
 }
 
-// A tag that does not match loses to a branch that said nothing against
-// that property, whatever the counts: one `const` complaint is not closer
-// than two missing fields of the branch the tag names.
+// A tag that does not match loses to a sibling that tags the same property
+// and passed, whatever the counts: one `const` complaint is not closer than
+// two missing fields of the branch the tag names.
 {
+  const two = [{ keyword: 'required', instancePath: '/f' }, { keyword: 'required', instancePath: '/f' }];
   const r = collapseBranches({
     keyword: 'anyOf',
     branchResults: [
-      { valid: false, errors: [{ keyword: 'const', instancePath: '/f/kind' }] },
-      { valid: false, errors: [{ keyword: 'required', instancePath: '/f' }, { keyword: 'required', instancePath: '/f' }] },
+      { valid: false, errors: [{ keyword: 'const', instancePath: '/f/kind' }], tags: ['kind'] },
+      { valid: false, errors: two, tags: ['kind'] },
     ],
     parentPath: '/f', parentSchemaPath: '#/properties/f/anyOf',
   });
   assert.strictEqual(r.params.closest, 1);
-  // a branch that refuses the key itself has said something against it
+  // a sibling that does not tag the property says nothing about it
   const s = collapseBranches({
     keyword: 'anyOf',
     branchResults: [
-      { valid: false, errors: [{ keyword: 'enum', instancePath: '/f/op' }] },
-      { valid: false, errors: [{ keyword: 'additionalProperties', instancePath: '/f', params: { additionalProperty: 'op' } }, { keyword: 'required', instancePath: '/f' }] },
+      { valid: false, errors: [{ keyword: 'enum', instancePath: '/f/op' }], tags: ['op'] },
+      { valid: false, errors: two, tags: [] },
     ],
     parentPath: '/f', parentSchemaPath: '#/properties/f/anyOf',
   });
   assert.strictEqual(s.params.closest, 0);
+  // nor does one that tags it and refused it too
+  const both = collapseBranches({
+    keyword: 'anyOf',
+    branchResults: [
+      { valid: false, errors: [{ keyword: 'enum', instancePath: '/f/op' }], tags: ['op'] },
+      { valid: false, errors: [{ keyword: 'enum', instancePath: '/f/op' }, ...two], tags: ['op'] },
+    ],
+    parentPath: '/f', parentSchemaPath: '#/properties/f/anyOf',
+  });
+  assert.strictEqual(both.params.closest, 0);
   // a const deeper than the union's own properties is a field, not a tag
   const d = collapseBranches({
     keyword: 'anyOf',
     branchResults: [
-      { valid: false, errors: [{ keyword: 'const', instancePath: '/f/v/type' }] },
-      { valid: false, errors: [{ keyword: 'required', instancePath: '/f' }, { keyword: 'required', instancePath: '/f' }] },
+      { valid: false, errors: [{ keyword: 'const', instancePath: '/f/v/type' }], tags: [] },
+      { valid: false, errors: two, tags: [] },
     ],
     parentPath: '/f', parentSchemaPath: '#/properties/f/anyOf',
   });
   assert.strictEqual(d.params.closest, 0);
+}
+
+// The tags a branch declares, through allOf members and nested unions.
+{
+  const { branchTags } = require('../lib/branch-collapse');
+  assert.deepStrictEqual(branchTags({ properties: { kind: { const: 'a' }, op: { enum: ['x'] }, n: { type: 'number' } } }), ['kind', 'op']);
+  assert.deepStrictEqual(branchTags({ allOf: [{ properties: { kind: { const: 'a' } } }, { anyOf: [{ properties: { op: { enum: ['x'] } } }] }] }), ['kind', 'op']);
+  assert.deepStrictEqual(branchTags({ $ref: '#/$defs/a' }), []);
 }
 
 console.log('ok: branch-collapse unit tests');
@@ -345,6 +364,27 @@ const allofStrict = require('./fixtures/error-dx/composition/allof-strict.json')
           assert.deepStrictEqual(leaves(e.branchErrors).map((x) => x.keyword + ':' + (x.params.missingProperty || '')), want, label);
         }
       }
+    }
+  }
+}
+
+// A sibling that leaves the tag's property open (any string) does not make a
+// branch that refused the tag lose: it is no match by the tag, only by its
+// silence. For an unknown kind the formula filter's one complaint, the tag,
+// is reported, not the open filter's two.
+{
+  const schema = {
+    anyOf: [
+      { type: 'object', properties: { kind: { type: 'string' }, op: { enum: ['is_empty'] } }, required: ['kind', 'op'], additionalProperties: false },
+      { type: 'object', properties: { kind: { enum: ['formula'] }, result: { type: 'object' } }, required: ['kind', 'result'], additionalProperties: false },
+    ],
+  };
+  for (const opts of [{}, { engine: 'interpreter' }]) {
+    const v = new Validator(schema, opts);
+    for (let i = 0; i < 100; i++) {
+      const e = v.validate({ kind: 'zzz', result: {} }).errors.find((x) => x.code === 'ATA4003');
+      assert.strictEqual(e.params.closest, 1, JSON.stringify(opts) + ' call ' + (i + 1));
+      assert.deepStrictEqual(e.branchErrors.map((x) => x.keyword + ':' + x.instancePath), ['enum:/kind']);
     }
   }
 }

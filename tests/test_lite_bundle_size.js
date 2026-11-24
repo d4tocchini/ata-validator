@@ -291,7 +291,10 @@ const esbuild = require('esbuild')
 // 63320 (63309 measured): a failed union reports the branch the value's tag
 // names, its const or enum weighed against what the other branches say about
 // the same property; 298 bytes.
-const BUDGET = 63320
+// 63460 (63444 measured): a tag counts against a branch only beside a sibling
+// that tags the same property, read from each branch's schema by every
+// engine; 135 bytes.
+const BUDGET = 63460
 
 const result = esbuild.buildSync({
   entryPoints: [path.join(__dirname, '..', 'lite.mjs')],

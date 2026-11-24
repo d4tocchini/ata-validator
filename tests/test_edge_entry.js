@@ -155,7 +155,10 @@ const root = path.resolve(__dirname, '..');
     // 67640 bytes (67619 measured): a failed union reports the branch the
     // value's tag names, its const or enum weighed against what the other
     // branches say about the same property; 301 bytes.
-    assert.ok(size < 67640, `the Workers bundle is ${size} bytes gzipped, over 67640`);
+    // 67760 bytes (67748 measured): a tag counts against a branch only beside
+    // a sibling that tags the same property, read from each branch's schema
+    // by every engine; 129 bytes.
+    assert.ok(size < 67760, `the Workers bundle is ${size} bytes gzipped, over 67760`);
     const browser = build(['browser'], 'browser');
     assert.ok(shipped(browser).some((k) => /codegen-engine/.test(k)), 'a browser bundle keeps the code generator');
     // A bundle for Node (the `module` condition, which esbuild, Rollup and
