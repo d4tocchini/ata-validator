@@ -63,12 +63,14 @@ function answers() {
   return out;
 }
 
-// How many functions a validator compiles from its 2nd call to its 200th,
-// with its errors read on every rejection.
+// How many functions a validator compiles after its first rejection, over 400
+// more calls with its errors read on every rejection. A rejection is what
+// compiles a validator that answered its first calls on the small-schema twin
+// (lib/codegen-engine.js SmallTwin), so the count starts after one.
 function compiledLater() {
   const schema = { type: 'object', properties: { to: { anyOf: [{ type: 'string' }, { type: 'object', properties: { key: { type: 'string', minLength: 2 } }, required: ['key'], additionalProperties: false }] }, n: { type: 'integer', minimum: 1 } }, required: ['to'] };
   const v = new Validator(schema, { richErrors: true });
-  v.validate({ to: 'a', n: 2 });
+  void v.validate({ to: 5 }).errors;
   const Real = globalThis.Function;
   let n = 0;
   globalThis.Function = new Proxy(Real, { construct(t, args) { n++; return Reflect.construct(t, args); } });
