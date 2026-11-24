@@ -137,6 +137,41 @@ assert.ok(scoreBranch([{ keyword: 'type' }, { keyword: 'minLength' }]) > scoreBr
   assert.strictEqual(s.branchErrors.length, 1);
 }
 
+// A tag that does not match loses to a branch that said nothing against
+// that property, whatever the counts: one `const` complaint is not closer
+// than two missing fields of the branch the tag names.
+{
+  const r = collapseBranches({
+    keyword: 'anyOf',
+    branchResults: [
+      { valid: false, errors: [{ keyword: 'const', instancePath: '/f/kind' }] },
+      { valid: false, errors: [{ keyword: 'required', instancePath: '/f' }, { keyword: 'required', instancePath: '/f' }] },
+    ],
+    parentPath: '/f', parentSchemaPath: '#/properties/f/anyOf',
+  });
+  assert.strictEqual(r.params.closest, 1);
+  // a branch that refuses the key itself has said something against it
+  const s = collapseBranches({
+    keyword: 'anyOf',
+    branchResults: [
+      { valid: false, errors: [{ keyword: 'enum', instancePath: '/f/op' }] },
+      { valid: false, errors: [{ keyword: 'additionalProperties', instancePath: '/f', params: { additionalProperty: 'op' } }, { keyword: 'required', instancePath: '/f' }] },
+    ],
+    parentPath: '/f', parentSchemaPath: '#/properties/f/anyOf',
+  });
+  assert.strictEqual(s.params.closest, 0);
+  // a const deeper than the union's own properties is a field, not a tag
+  const d = collapseBranches({
+    keyword: 'anyOf',
+    branchResults: [
+      { valid: false, errors: [{ keyword: 'const', instancePath: '/f/v/type' }] },
+      { valid: false, errors: [{ keyword: 'required', instancePath: '/f' }, { keyword: 'required', instancePath: '/f' }] },
+    ],
+    parentPath: '/f', parentSchemaPath: '#/properties/f/anyOf',
+  });
+  assert.strictEqual(d.params.closest, 0);
+}
+
 console.log('ok: branch-collapse unit tests');
 
 // End-to-end: oneOf/anyOf/allOf through the runtime Validator.
@@ -267,6 +302,48 @@ const allofStrict = require('./fixtures/error-dx/composition/allof-strict.json')
         assert.ok(e, `${label}: expected ATA4003 at ${at}`);
         assert.strictEqual(e.params.closest, closest, label);
         assert.deepStrictEqual(e.branchErrors.map((x) => x.keyword), keywords, label);
+      }
+    }
+  }
+}
+
+// A discriminated union, as anyOf and as oneOf, with the tag as a const, as
+// an enum of several values, and with the date and number branches nested
+// in a union of their own (TypeBox's `All | (Date | Number)`): the branch
+// the tag names is reported. With no tag, the branch that needs least is
+// reported, and it asks for the tag; with a tag no branch knows, every
+// branch refused it and the score picks, so the first branch's tag is named.
+{
+  const br = (tag, props, req) => ({ type: 'object', properties: { kind: tag, ...props }, required: ['kind', ...req], additionalProperties: false });
+  const date = (tag) => br(tag, { from: { type: 'string' }, to: { type: 'string' } }, ['from', 'to']);
+  const num = br({ const: 'number' }, { min: { type: 'number' }, max: { type: 'number' } }, ['min', 'max']);
+  const all = br({ const: 'all' }, {}, []);
+  const shapes = [
+    ['anyOf', { anyOf: [all, date({ const: 'date' }), num] }, 'date'],
+    ['oneOf', { oneOf: [all, date({ const: 'date' }), num] }, 'date'],
+    ['enum', { anyOf: [all, date({ enum: ['date', 'datetime'] }), num] }, 'datetime'],
+    ['nested', { anyOf: [all, { anyOf: [date({ const: 'date' }), num] }] }, 'date'],
+  ];
+  const code = { anyOf: 'ATA4003', oneOf: 'ATA4001', enum: 'ATA4003', nested: 'ATA4003' };
+  for (const [name, union, tag] of shapes) {
+    const schema = { type: 'object', properties: { filter: union } };
+    const cases = [
+      [{ kind: tag }, ['required:from', 'required:to']],
+      [{ kind: 'number', min: '1' }, ['type:', 'required:max']],
+      [{ kind: tag, from: 'a', to: 'b', zzz: 1 }, ['additionalProperties:']],
+      [{}, ['required:kind']],
+      [{ kind: 'zzz' }, ['const:']],
+    ];
+    for (const opts of [{}, { engine: 'interpreter' }]) {
+      for (const [filter, want] of cases) {
+        const v = new Validator(schema, opts);
+        for (let i = 0; i < 100; i++) {
+          const e = v.validate({ filter }).errors.find((x) => x.code === code[name] && x.instancePath === '/filter');
+          const label = `${name} ${JSON.stringify(filter)} ${JSON.stringify(opts)} call ${i + 1}`;
+          assert.ok(e, label);
+          const leaves = (es) => es.flatMap((x) => x.branchErrors && x.instancePath === '/filter' ? leaves(x.branchErrors) : [x]);
+          assert.deepStrictEqual(leaves(e.branchErrors).map((x) => x.keyword + ':' + (x.params.missingProperty || '')), want, label);
+        }
       }
     }
   }

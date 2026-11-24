@@ -288,7 +288,10 @@ const esbuild = require('esbuild')
 // 63040 (63032 measured): the removal pass and the defaults module load only
 // for a schema with a closed object in its text, which kept 0.25 ms off a
 // server's first validated request; 56 bytes.
-const BUDGET = 63040
+// 63320 (63309 measured): a failed union reports the branch the value's tag
+// names, its const or enum weighed against what the other branches say about
+// the same property; 298 bytes.
+const BUDGET = 63320
 
 const result = esbuild.buildSync({
   entryPoints: [path.join(__dirname, '..', 'lite.mjs')],

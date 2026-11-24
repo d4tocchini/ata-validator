@@ -152,7 +152,10 @@ const root = path.resolve(__dirname, '..');
     // validator of one's own (issue #122); 23 bytes.
     // 67340 bytes (67332 measured): the removal pass loads only for a schema
     // with a closed object in its text; 38 bytes.
-    assert.ok(size < 67340, `the Workers bundle is ${size} bytes gzipped, over 67340`);
+    // 67640 bytes (67619 measured): a failed union reports the branch the
+    // value's tag names, its const or enum weighed against what the other
+    // branches say about the same property; 301 bytes.
+    assert.ok(size < 67640, `the Workers bundle is ${size} bytes gzipped, over 67640`);
     const browser = build(['browser'], 'browser');
     assert.ok(shipped(browser).some((k) => /codegen-engine/.test(k)), 'a browser bundle keeps the code generator');
     // A bundle for Node (the `module` condition, which esbuild, Rollup and
